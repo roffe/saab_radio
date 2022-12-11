@@ -1,0 +1,119 @@
+package ui
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/widget"
+	"github.com/roffe/saab_radio/radio"
+	"github.com/roffe/saab_radio/vin"
+	sdialog "github.com/sqweek/dialog"
+)
+
+type MainWindow struct {
+	app fyne.App
+	fyne.Window
+
+	vin  *widget.Entry
+	form *widget.Form
+}
+
+func NewMainWindow(app fyne.App) {
+	mw := &MainWindow{
+		app: app,
+	}
+
+	mw.vin = &widget.Entry{
+		TextStyle:   fyne.TextStyle{Monospace: true},
+		Wrapping:    fyne.TextWrapOff,
+		PlaceHolder: strings.Repeat("", 17),
+	}
+
+	mw.vin.Validator = func(str string) error {
+		if len(str) != 17 {
+			return fmt.Errorf("VIN must be 17 characters")
+		}
+		ok, _ := vin.VinCheck(str)
+		if !ok {
+			return fmt.Errorf("invalid VIN")
+		}
+		return nil
+	}
+
+	mw.vin.OnChanged = func(s string) {
+		if len(s) > 17 {
+			mw.vin.SetText(s[:17])
+		}
+	}
+
+	mw.form = &widget.Form{
+		Items: []*widget.FormItem{
+			widget.NewFormItem("VIN", mw.vin),
+		},
+		SubmitText: "Generate",
+		OnSubmit: func() {
+			filename, err := sdialog.File().Filter("Bin file", "bin").Title("Save eeprom binary").Save()
+			if err != nil {
+				if err.Error() == "Cancelled" {
+					return
+				}
+				return
+			}
+			filename = addSuffix(filename, ".bin")
+
+			codes, err := radio.GenerateCodes(mw.vin.Text[len(mw.vin.Text)-6:])
+			if err != nil {
+				dialog.ShowError(err, mw)
+				return
+			}
+			//fmt.Printf("VIN: %s Code 1: %X, Code 2: %X\n", vin, codes[0], codes[1])
+			b := radio.GenerateBin(codes)
+			if err := os.WriteFile(filename, b, 0644); err != nil {
+				dialog.ShowError(err, mw)
+				return
+			}
+			sdialog.Message("EEPROM binary saved to " + filename).Title("Success").Info()
+		},
+	}
+
+	mw.Window = app.NewWindow("Saab 9-5 Radio Tool")
+	mw.Show()
+	mw.SetContent(mw.layout())
+	mw.Resize(fyne.NewSize(300, 80))
+	mw.SetFixedSize(true)
+	mw.ShowAndRun()
+}
+
+func (mw *MainWindow) layout() fyne.CanvasObject {
+	//mw.SetContent()
+	return mw.form
+}
+
+func addSuffix(s, suffix string) string {
+	if !strings.HasSuffix(s, suffix) {
+		return s + suffix
+	}
+	return s
+}
+
+/*
+	log.Println(len(eeprom))
+	if len(os.Args) < 2 {
+		log.Fatal("Please enter VIN(S)")
+	}
+	for _, vin := range os.Args[1:] {
+		codes, err := generateCodes(vin[len(vin)-6:])
+		if err != nil {
+			fmt.Println(err.Error())
+			continue
+		}
+		fmt.Printf("VIN: %s Code 1: %X, Code 2: %X\n", vin, codes[0], codes[1])
+		b := generateBin(codes)
+		if err := os.WriteFile(vin+".bin", b, 0644); err != nil {
+			log.Println(err.Error())
+		}
+	}
+*/
